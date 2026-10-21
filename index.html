@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Treino da semana</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { bg:'var(--bg)', card:'var(--card)', ink:'var(--ink)', soft:'var(--soft)', line:'var(--line)', accent:'var(--accent)', onaccent:'var(--onaccent)', ok:'var(--ok)', okbg:'var(--okbg)' },
+  fontFamily: { display:['"Barlow Condensed"','Arial Narrow','sans-serif'], body:['Barlow','system-ui','sans-serif'] }
+}}};
+</script>
+<style>
+:root{--bg:#F3F5F9;--card:#FFFFFF;--ink:#0B1B33;--soft:#44546B;--line:#9AA7BA;--accent:#1740C4;--onaccent:#FFFFFF;--ok:#0A6B36;--okbg:#DDF3E6;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0A1220;--card:#14203A;--ink:#F2F6FC;--soft:#B6C3D8;--line:#6C7F9E;--accent:#7FA2FF;--onaccent:#06122E;--ok:#6FE3A0;--okbg:#0F3A25;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0A1220;--card:#14203A;--ink:#F2F6FC;--soft:#B6C3D8;--line:#6C7F9E;--accent:#7FA2FF;--onaccent:#06122E;--ok:#6FE3A0;--okbg:#0F3A25;color-scheme:dark}
+html,body{height:auto}
+body{background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;font-size:18px;margin:0}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.tabs{scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState } = React;
+
+// Dados de exemplo (apenas front-end). prev = carga do treino anterior, em kg.
+const WEEK = [
+  { id:'seg', short:'Seg', name:'Segunda', focus:'Peito e tríceps', ex:[
+    { id:'a', name:'Supino reto', sets:4, reps:'8-10', prev:60 },
+    { id:'b', name:'Supino inclinado com halteres', sets:3, reps:'10', prev:22 },
+    { id:'c', name:'Crucifixo na máquina', sets:3, reps:'12', prev:35 },
+    { id:'d', name:'Tríceps na polia', sets:4, reps:'12', prev:30 },
+    { id:'e', name:'Tríceps francês', sets:3, reps:'10', prev:20 } ]},
+  { id:'ter', short:'Ter', name:'Terça', focus:'Costas e bíceps', ex:[
+    { id:'a', name:'Puxada na frente', sets:4, reps:'10', prev:55 },
+    { id:'b', name:'Remada curvada', sets:4, reps:'8-10', prev:50 },
+    { id:'c', name:'Remada baixa', sets:3, reps:'12', prev:45 },
+    { id:'d', name:'Rosca direta', sets:3, reps:'10', prev:25 },
+    { id:'e', name:'Rosca martelo', sets:3, reps:'12', prev:12 },
+    { id:'f', name:'Face pull', sets:3, reps:'15', prev:20 } ]},
+  { id:'qua', short:'Qua', name:'Quarta', focus:'Descanso', ex:[] },
+  { id:'qui', short:'Qui', name:'Quinta', focus:'Pernas', ex:[
+    { id:'a', name:'Agachamento livre', sets:4, reps:'8', prev:80 },
+    { id:'b', name:'Leg press 45°', sets:4, reps:'10-12', prev:180 },
+    { id:'c', name:'Cadeira extensora', sets:3, reps:'12', prev:50 },
+    { id:'d', name:'Mesa flexora', sets:3, reps:'12', prev:40 },
+    { id:'e', name:'Panturrilha em pé', sets:4, reps:'15', prev:70 } ]},
+  { id:'sex', short:'Sex', name:'Sexta', focus:'Ombros e abdômen', ex:[
+    { id:'a', name:'Desenvolvimento com halteres', sets:4, reps:'10', prev:20 },
+    { id:'b', name:'Elevação lateral', sets:4, reps:'12', prev:10 },
+    { id:'c', name:'Elevação posterior', sets:3, reps:'12', prev:8 },
+    { id:'d', name:'Abdominal na polia', sets:3, reps:'15', prev:35 } ]},
+  { id:'sab', short:'Sáb', name:'Sábado', focus:'Descanso', ex:[] },
+  { id:'dom', short:'Dom', name:'Domingo', focus:'Descanso', ex:[] },
+];
+
+const todayIndex = () => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; };
+
+function Check({ on }) {
+  return (
+    <span aria-hidden="true" className={'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-[3px] transition-colors ' + (on ? 'border-ok bg-ok text-bg' : 'border-ink bg-card')}>
+      {on && <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>}
+    </span>
+  );
+}
+
+function Exercise({ ex, done, load, onToggle, onLoad }) {
+  return (
+    <li className={'rounded-2xl border-2 p-4 transition-colors ' + (done ? 'border-ok bg-okbg' : 'border-line bg-card')}>
+      <button type="button" onClick={onToggle} role="checkbox" aria-checked={done}
+        className="flex min-h-[56px] w-full items-center gap-4 text-left">
+        <Check on={done} />
+        <span className="flex-1">
+          <span className={'block font-display text-[26px] font-bold leading-tight ' + (done ? 'line-through decoration-2' : '')}>{ex.name}</span>
+          <span className="block text-[19px] font-semibold text-soft">{ex.sets} séries × {ex.reps} repetições</span>
+        </span>
+      </button>
+
+      <div className="mt-3 flex flex-wrap items-end gap-3 border-t-2 border-line/50 pt-3">
+        <div className="min-w-[110px]">
+          <p className="text-base font-semibold text-soft">Treino anterior</p>
+          <p className="font-display text-[28px] font-bold leading-none">{ex.prev} kg</p>
+        </div>
+        <label className="flex-1 min-w-[150px]">
+          <span className="block text-base font-semibold text-soft">Carga de hoje (kg)</span>
+          <input type="number" inputMode="decimal" min="0" step="0.5" value={load}
+            onChange={e => onLoad(e.target.value)} placeholder={String(ex.prev)}
+            className="mt-1 h-14 w-full rounded-xl border-[3px] border-ink bg-card px-3 font-display text-[28px] font-bold text-ink placeholder:text-line" />
+        </label>
+        <button type="button" onClick={() => onLoad(String(ex.prev))}
+          className="h-14 rounded-xl border-[3px] border-accent px-4 text-lg font-bold text-accent active:bg-accent active:text-onaccent">
+          Repetir {ex.prev} kg
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function App() {
+  const [dayIdx, setDayIdx] = useState(todayIndex());
+  const [done, setDone] = useState({});
+  const [loads, setLoads] = useState({});
+  const day = WEEK[dayIdx];
+  const key = (d, e) => d.id + ':' + e.id;
+  const doneCount = d => d.ex.filter(e => done[key(d, e)]).length;
+  const total = day.ex.length, count = doneCount(day);
+  const pct = total ? Math.round((count / total) * 100) : 0;
+  const finished = total > 0 && count === total;
+
+  return (
+    <div className="mx-auto max-w-2xl px-4 pb-32 pt-5">
+      <header>
+        <h1 className="font-display text-[40px] font-bold leading-none">Treino da semana</h1>
+        <p className="mt-1 text-lg text-soft">Toque no dia, marque cada exercício ao terminar.</p>
+      </header>
+
+      <nav aria-label="Dias da semana" className="tabs -mx-4 mt-5 overflow-x-auto px-4">
+        <ul className="flex gap-2 pb-1">
+          {WEEK.map((d, i) => {
+            const sel = i === dayIdx, n = d.ex.length, c = doneCount(d);
+            return (
+              <li key={d.id}>
+                <button type="button" onClick={() => setDayIdx(i)} aria-pressed={sel} aria-label={d.name + (n ? ', ' + c + ' de ' + n + ' feitos' : ', descanso')}
+                  className={'flex h-[76px] w-[68px] flex-col items-center justify-center rounded-2xl border-[3px] transition-colors ' + (sel ? 'border-accent bg-accent text-onaccent' : 'border-line bg-card text-ink')}>
+                  <span className="font-display text-[26px] font-bold leading-none">{d.short}</span>
+                  <span className="mt-1 text-base font-semibold">{n ? (c === n ? 'Feito' : c + '/' + n) : 'Folga'}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <section className="mt-6" aria-live="polite">
+        <h2 className="font-display text-[34px] font-bold leading-tight">{day.name}: {day.focus}</h2>
+
+        {total > 0 ? (
+          <>
+            <div className="mt-3" role="progressbar" aria-valuemin="0" aria-valuemax={total} aria-valuenow={count} aria-label="Progresso do treino">
+              <div className="flex justify-between text-lg font-semibold">
+                <span>{count} de {total} exercícios</span><span>{pct}%</span>
+              </div>
+              <div className="mt-1 h-4 overflow-hidden rounded-full border-2 border-ink bg-card">
+                <div className="h-full bg-ok transition-all" style={{ width: pct + '%' }} />
+              </div>
+            </div>
+
+            {finished && (
+              <p className="mt-4 rounded-2xl bg-ok p-4 text-xl font-bold text-bg">Treino concluído. Bom trabalho!</p>
+            )}
+
+            <ul className="mt-5 space-y-4">
+              {day.ex.map(e => {
+                const k = key(day, e);
+                return <Exercise key={k} ex={e} done={!!done[k]} load={loads[k] || ''}
+                  onToggle={() => setDone(s => ({ ...s, [k]: !s[k] }))}
+                  onLoad={v => setLoads(s => ({ ...s, [k]: v }))} />;
+              })}
+            </ul>
+          </>
+        ) : (
+          <p className="mt-4 rounded-2xl border-2 border-line bg-card p-5 text-xl">Hoje é dia de descanso. Escolha outro dia acima para ver o treino.</p>
+        )}
+      </section>
+
+      {total > 0 && (
+        <div className="fixed inset-x-0 bottom-0 border-t-2 border-line bg-bg px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+          <button type="button" onClick={() => {
+              const next = {}; day.ex.forEach(e => { next[key(day, e)] = true; });
+              setDone(s => ({ ...s, ...next }));
+            }}
+            disabled={finished}
+            className="mx-auto block h-16 w-full max-w-2xl rounded-2xl bg-accent text-[22px] font-bold text-onaccent disabled:opacity-60">
+            {finished ? 'Todos os exercícios feitos' : 'Concluir todos os exercícios'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
