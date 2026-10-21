@@ -1,0 +1,13 @@
+Resumo do Mini MVP: software de Treino Semanal
+
+Problema: Praticantes de musculação se perdem no treino diário e esquecem as cargas porque os apps atuais são complexos e demorados.
+Persona: Lucas, 24 anos. Treina na correria do dia a dia e quer ver o treino em segundos e registrar o progresso sem enrolação.
+História de Usuário Principal: "Como aluno de musculação, quero ver o treino do dia e marcar os exercícios concluídos rapidamente para manter a constância sem perder tempo."
+
+ Escopo (MoSCoW)
+
+Must Have (Obrigatório): Visualizar a rotina semanal por dias, ver a lista de exercícios (séries/reps) e marcar com 
+checkbox o que foi feito.
+Should Have (Recomendado): Campo simples para salvar a carga usada e exibir o peso do último treino.
+Could Have (Opcional): Barra de progresso do dia (% concluído) e campo de notas rápidas.
+Won't Have (Fora do MVP): Login de usuário, cronômetro de descanso e gráficos complexos.
