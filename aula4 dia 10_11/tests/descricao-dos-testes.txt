@@ -1,0 +1,95 @@
+DOCUMENTACAO DOS TESTES DO APLICATIVO DE TREINO
+
+Este documento explica, em linguagem simples, o que cada teste automatizado verifica.
+Os arquivos de teste ficam nesta mesma pasta.
+
+1. TESTES UNITARIOS
+Arquivo: testes-unitarios.php
+
+Os testes unitarios verificam calculos e regras isoladas, sem salvar dados no banco.
+
+1.1. calcula volume como series x repeticoes x carga
+Confere se o volume e calculado multiplicando o numero de series pelas repeticoes
+e pela carga. Exemplo: 4 x 10 x 30 = 1.200.
+
+1.2. volume aceita carga zero e valores numericos grandes
+Confere que uma carga igual a zero resulta em volume zero e que valores grandes
+sao calculados corretamente, sem alterar a formula.
+
+1.3. calcula 1RM estimado pela formula de Epley
+Verifica a estimativa de uma repeticao maxima usando a formula de Epley:
+carga x (1 + repeticoes / 30). No exemplo, 100 kg em 3 repeticoes resulta em 110 kg.
+
+1.4. 1RM retorna zero para carga zero
+Confere o caso de borda em que a carga e zero. A estimativa tambem deve ser zero.
+
+1.5. sugere aumento somente quando todas as series atingem o topo
+Verifica que o aplicativo sugere aumentar a carga quando todas as series chegam
+ao limite maximo de repeticoes. Se ao menos uma serie nao chegar, mantem a carga.
+
+1.6. progressao rejeita lista vazia e aumento invalido
+Confere que nao e possivel calcular a progressao sem registrar series e que um
+aumento igual a zero e rejeitado.
+
+1.7. converte kg para lb e volta sem perder o valor
+Converte cargas de quilogramas para libras e de volta para quilogramas.
+Compara o resultado com o valor original, incluindo zero e um valor grande.
+
+1.8. rejeita carga negativa, repeticoes nao positivas e campos vazios
+Confere que cargas negativas, zero ou repeticoes negativas e campos sem valor
+geram erro, em vez de produzirem um resultado incorreto.
+
+1.9. identifica recorde de peso ou de 1RM e nao sinaliza empate
+Verifica se uma serie e reconhecida como recorde quando supera o maior peso
+ou o maior 1RM anterior. Um resultado igual ao recorde nao conta como novo recorde.
+Tambem verifica o primeiro registro, quando ainda nao ha recordes anteriores.
+
+
+2. TESTES DE INTEGRACAO
+Arquivo: testes-integracao.php
+
+Os testes de integracao verificam se os dados podem ser gravados no banco de dados
+e consultados novamente.
+
+2.1. salva um treino no banco e le os mesmos dados
+Grava os dados de um treino e confere se a leitura devolve as mesmas informacoes,
+incluindo carga, exercicio e presenca.
+
+2.2. salva varias series e consulta-as no historico
+Registra mais de um exercicio em uma sessao e verifica se o historico retorna a
+quantidade de exercicios e a carga esperadas.
+
+2.3. le uma lista de historico vazia sem inventar sessoes
+Confere que um historico vazio continua vazio depois de ser salvo e consultado.
+
+
+3. TESTE DO FLUXO PRINCIPAL
+Arquivo: teste-fluxo-principal.php
+
+3.1. cria treino, registra serie, finaliza e encontra a sessao no historico
+Simula o fluxo principal: inicia uma sessao, registra um exercicio e sua carga,
+finaliza o treino, salva os dados e verifica se a sessao aparece no historico
+com a duracao, o exercicio e a carga corretos.
+
+
+COMO EXECUTAR
+
+Abra o PowerShell na pasta principal do projeto. O PHP precisa estar instalado e
+acessivel pelo comando "php". Os testes de integracao e de fluxo precisam tambem
+do banco MySQL do projeto funcionando e configurado em db.php.
+
+Execute cada arquivo com:
+
+php tests\testes-unitarios.php
+php tests\testes-integracao.php
+php tests\teste-fluxo-principal.php
+
+Cada teste aprovado aparece com [OK]. No final, o programa mostra quantos passaram
+e quantos falharam. Os testes que usam o banco criam uma conta temporaria dentro
+de uma transacao e desfazem essas alteracoes ao terminar.
+
+
+ARQUIVO DE APOIO
+
+bootstrap.php contem funcoes compartilhadas de verificacao e suporte a banco de
+dados. Ele nao e uma suite de testes executada separadamente.
