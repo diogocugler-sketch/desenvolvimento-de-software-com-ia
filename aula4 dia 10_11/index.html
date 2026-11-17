@@ -134,7 +134,8 @@ body .text-red-800{color:var(--bad)}
 const { useState, useEffect, useRef } = React;
 
 async function api(action, options = {}) {
-  const response = await fetch('api.php?action=' + encodeURIComponent(action), {
+  const params = options.params ? '&' + new URLSearchParams(options.params).toString() : '';
+  const response = await fetch('api.php?action=' + encodeURIComponent(action) + params, {
     credentials: 'same-origin',
     ...options,
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
@@ -854,6 +855,7 @@ const ic = p => <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stro
 const TABS = [
   ['hoje', 'Treino', ic(<><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></>)],
   ['calendario', 'Calendário', ic(<><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></>)],
+  ['nfe', 'NF-e', ic(<><path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h3"/></>)],
   ['perfil', 'Perfil', ic(<><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-7 8-7s8 3 8 7"/></>)]
 ];
 
@@ -871,6 +873,106 @@ const mergeWorkoutPlan = savedPlan => {
   });
   return plan;
 };
+
+function NfePage() {
+  const [config, setConfig] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const load = async () => {
+    try {
+      const [configResult, listResult] = await Promise.all([api('nfe_config'), api('nfe_list')]);
+      setConfig(configResult);
+      setNotes(listResult.notes || []);
+    } catch (loadError) {
+      setError(loadError.message);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const submit = async event => {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setBusy(true);
+    const form = event.currentTarget;
+    const payload = Object.fromEntries(new FormData(form));
+    try {
+      const result = await api('nfe_emit', { method: 'POST', body: JSON.stringify(payload) });
+      setSuccess('Exemplo de NF-e criado com sucesso. Nenhuma nota real foi enviada. Referência: ' + result.reference);
+      form.reset();
+      await load();
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="space-y-5">
+      <div className="rounded-2xl border-2 border-line bg-card p-5">
+        <h2 className="font-display text-[32px] font-bold">Emitir NF-e</h2>
+        <p className="mt-1 text-base text-soft">Emissão manual em ambiente demonstrativo. Nenhum documento fiscal real será enviado à SEFAZ.</p>
+        {config && (
+          <div className="mt-3 flex flex-wrap gap-2 text-sm font-bold">
+            <span className="rounded-full bg-accent px-3 py-1 text-onaccent">Modo exemplo</span>
+            <span className="rounded-full bg-card px-3 py-1 ring-2 ring-line">Ambiente: demonstração</span>
+          </div>
+        )}
+      </div>
+
+      {error && <p role="alert" className="rounded-xl bg-red-100 p-3 font-semibold text-red-800">{error}</p>}
+      {success && <p role="status" className="rounded-xl border-2 border-ok bg-okbg p-3 font-semibold text-ok">{success}</p>}
+
+      <form onSubmit={submit} className="rounded-2xl border-2 border-line bg-card p-5">
+        <h3 className="font-display text-[28px] font-bold">Destinatário</h3>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="block sm:col-span-2"><span className="block text-base font-semibold text-soft">Nome / razão social</span><input name="destinatario_nome" required maxLength="120" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">CPF / CNPJ</span><input name="destinatario_documento" required inputMode="numeric" maxLength="18" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">E-mail</span><input name="destinatario_email" type="email" maxLength="190" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">CEP</span><input name="destinatario_cep" required inputMode="numeric" maxLength="9" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Logradouro</span><input name="destinatario_logradouro" required maxLength="120" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Número</span><input name="destinatario_numero" required maxLength="20" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Bairro</span><input name="destinatario_bairro" required maxLength="120" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Município</span><input name="destinatario_municipio" required maxLength="120" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">UF</span><input name="destinatario_uf" required minLength="2" maxLength="2" placeholder="SP" className="mt-1 h-12 w-full border-2 border-line bg-card px-3 uppercase" /></label>
+        </div>
+
+        <h3 className="mt-5 font-display text-[28px] font-bold">Produto</h3>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="block sm:col-span-2"><span className="block text-base font-semibold text-soft">Descrição</span><input name="item_descricao" required maxLength="120" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Código</span><input name="item_codigo" required maxLength="60" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">NCM (8 dígitos)</span><input name="item_ncm" required inputMode="numeric" minLength="8" maxLength="8" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">CFOP (4 dígitos)</span><input name="item_cfop" required inputMode="numeric" minLength="4" maxLength="4" placeholder="5102" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Unidade</span><input name="item_unidade" required maxLength="6" defaultValue="UN" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Quantidade</span><input name="item_quantidade" required type="number" min="0.0001" step="0.0001" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+          <label className="block"><span className="block text-base font-semibold text-soft">Valor unitário (R$)</span><input name="item_valor_unitario" required type="number" min="0.01" step="0.01" className="mt-1 h-12 w-full border-2 border-line bg-card px-3" /></label>
+        </div>
+        <button type="submit" disabled={busy} className="mt-5 h-14 w-full rounded-xl bg-accent text-lg font-bold text-onaccent disabled:opacity-60">{busy ? 'Enviando…' : 'Emitir nota fiscal'}</button>
+      </form>
+
+      <div className="rounded-2xl border-2 border-line bg-card p-5">
+        <h3 className="font-display text-[28px] font-bold">Notas emitidas</h3>
+        {notes.length === 0 ? <p className="mt-2 text-soft">Nenhuma NF-e enviada por esta conta.</p> : (
+          <ul className="mt-3 space-y-3">
+            {notes.map(note => (
+              <li key={note.id} className="rounded-xl border-2 border-line p-3">
+                <div className="flex items-start justify-between gap-3"><div><p className="font-bold">{note.referencia}</p><p className="text-sm text-soft">Status: {note.status}{note.numero ? ' · Nº ' + note.numero : ''}</p></div>
+                  <button type="button" onClick={async () => { try { await api('nfe_consult', { params: { ref: note.referencia } }); await load(); } catch (consultError) { setError(consultError.message); } }} className="shrink-0 rounded-lg border-2 border-line px-3 py-2 text-sm font-bold">Consultar</button>
+                </div>
+                {note.chave && <p className="mt-2 break-all text-sm text-soft">Chave: {note.chave}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function App() {
   const skipNextSave = useRef(false);
@@ -1100,7 +1202,9 @@ function App() {
               workoutPlan={workoutPlan} setWorkoutPlan={setWorkoutPlan} />
           : view === 'calendario'
             ? <Calendario statusOf={statusOf} presenca={presenca} setPresenca={setPresenca} />
-            : <Perfil user={user} workoutPlan={workoutPlan} historico={historico}
+            : view === 'nfe'
+              ? <NfePage />
+              : <Perfil user={user} workoutPlan={workoutPlan} historico={historico}
                 rankings={rankings} rankingBusy={rankingBusy} rankingError={rankingError} />}
       </main>
       <nav aria-label="Principal" className="fixed inset-x-0 bottom-0 z-20 border-t-2 border-line bg-card" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>

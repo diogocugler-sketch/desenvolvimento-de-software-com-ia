@@ -232,6 +232,72 @@ function validateWorkoutPlan(array $data): array
     return $plan;
 }
 
+function focusNfeConfig(): array
+{
+    $environment = strtolower(trim((string) (getenv('FOCUS_NFE_ENVIRONMENT') ?: 'homologacao')));
+    $token = trim((string) (getenv('FOCUS_NFE_TOKEN') ?: ''));
+    $demoValue = strtolower(trim((string) (getenv('FOCUS_NFE_DEMO') ?: 'true')));
+    $demo = $token === '' || !in_array($demoValue, ['0', 'false', 'no', 'off'], true);
+    $baseUrl = $environment === 'producao'
+        ? 'https://api.focusnfe.com.br/v2'
+        : 'https://homologacao.focusnfe.com.br/v2';
+
+    return ['configured' => $token !== '', 'demo' => $demo, 'environment' => $environment, 'base_url' => $baseUrl, 'token' => $token];
+}
+
+function focusNfeRequest(string $method, string $path, ?array $body = null): array
+{
+    $config = focusNfeConfig();
+    if (!$config['configured']) {
+        respond(503, ['error' => 'Configure FOCUS_NFE_TOKEN no servidor antes de emitir notas.']);
+    }
+
+    $curl = curl_init($config['base_url'] . $path);
+    if ($curl === false) {
+        respond(500, ['error' => 'Não foi possível iniciar a comunicação com a Focus NFe.']);
+    }
+
+    $headers = ['Accept: application/json'];
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_USERPWD => $config['token'] . ':',
+        CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+    if ($body !== null) {
+        curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        curl_setopt($curl, CURLOPT_HTTPHEADER, array_merge($headers, ['Content-Type: application/json']));
+    }
+
+    $raw = curl_exec($curl);
+    $httpStatus = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+
+    if (!is_string($raw) || $curlError !== '') {
+        respond(502, ['error' => 'Falha de comunicação com a Focus NFe: ' . $curlError]);
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        $decoded = ['mensagem' => trim($raw)];
+    }
+
+    if ($httpStatus >= 400) {
+        $message = $decoded['mensagem'] ?? $decoded['error'] ?? 'A Focus NFe recusou a operação.';
+        respond($httpStatus === 401 || $httpStatus === 403 ? 502 : $httpStatus, ['error' => $message, 'details' => $decoded]);
+    }
+
+    return $decoded;
+}
+
+function cleanDocument(string $document): string
+{
+    return preg_replace('/\D/', '', $document) ?? '';
+}
+
 try {
     $action = $_GET['action'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -442,10 +508,204 @@ try {
         respond(200, ['message' => 'Treino sincronizado.']);
     }
 
-    if (in_array($action, ['register', 'login', 'logout', 'me', 'workout', 'leaderboard'], true)) {
+    if ($action === 'nfe_config' && $method === 'GET') {
+        requireClient();
+        $config = focusNfeConfig();
+        respond(200, [
+            'configured' => $config['configured'],
+            'demo' => $config['demo'],
+            'environment' => $config['environment'],
+            'issuerConfigured' => $config['demo']
+                || (trim((string) (getenv('FOCUS_NFE_CNPJ_EMITENTE') ?: '')) !== ''
+                    && trim((string) (getenv('FOCUS_NFE_NOME_EMITENTE') ?: '')) !== ''),
+        ]);
+    }
+
+    if ($action === 'nfe_list' && $method === 'GET') {
+        $client = requireClient();
+        $query = database()->prepare(
+            'SELECT id, referencia, status, numero, chave, caminho_xml, caminho_danfe, mensagem, criado_em, atualizado_em
+             FROM notas_fiscais WHERE cliente_id = ? ORDER BY id DESC LIMIT 100'
+        );
+        $query->execute([$client['id']]);
+        respond(200, ['notes' => $query->fetchAll()]);
+    }
+
+    if ($action === 'nfe_consult' && $method === 'GET') {
+        $client = requireClient();
+        $reference = trim((string) ($_GET['ref'] ?? ''));
+        if ($reference === '' || strlen($reference) > 120) {
+            respond(422, ['error' => 'Informe uma referência válida.']);
+        }
+
+        $query = database()->prepare('SELECT id FROM notas_fiscais WHERE cliente_id = ? AND referencia = ?');
+        $query->execute([$client['id'], $reference]);
+        if (!$query->fetch()) {
+            respond(404, ['error' => 'Nota fiscal não encontrada.']);
+        }
+
+        $config = focusNfeConfig();
+        $result = $config['demo']
+            ? [
+                'ref' => $reference,
+                'status' => 'autorizado',
+                'status_sefaz' => '100',
+                'mensagem_sefaz' => 'Autorizado o uso da NF-e — ambiente demonstrativo',
+                'chave_nfe' => 'NFeEXEMPLO' . substr(str_pad(preg_replace('/\D/', '', $reference) ?? '0', 44, '0'), -44),
+                'numero' => (string) random_int(1000, 9999),
+                'ambiente' => 'demonstracao',
+            ]
+            : focusNfeRequest('GET', '/nfe/' . rawurlencode($reference) . '?completa=1');
+        $update = database()->prepare(
+            'UPDATE notas_fiscais SET status = ?, numero = ?, chave = ?, caminho_xml = ?, caminho_danfe = ?, mensagem = ?, resposta_json = ? WHERE cliente_id = ? AND referencia = ?'
+        );
+        $update->execute([
+            (string) ($result['status'] ?? 'desconhecido'),
+            isset($result['numero']) ? (string) $result['numero'] : null,
+            isset($result['chave_nfe']) ? (string) $result['chave_nfe'] : null,
+            isset($result['caminho_xml_nota_fiscal']) ? (string) $result['caminho_xml_nota_fiscal'] : null,
+            isset($result['caminho_danfe']) ? (string) $result['caminho_danfe'] : null,
+            isset($result['mensagem_sefaz']) ? (string) $result['mensagem_sefaz'] : null,
+            json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            $client['id'],
+            $reference,
+        ]);
+        respond(200, ['note' => $result]);
+    }
+
+    if ($action === 'nfe_emit' && $method === 'POST') {
+        $client = requireClient();
+        $body = requestBody();
+
+        $recipientDocument = cleanDocument((string) ($body['destinatario_documento'] ?? ''));
+        $recipientName = trim((string) ($body['destinatario_nome'] ?? ''));
+        $recipientEmail = strtolower(trim((string) ($body['destinatario_email'] ?? '')));
+        $recipientCep = cleanDocument((string) ($body['destinatario_cep'] ?? ''));
+        $recipientAddress = trim((string) ($body['destinatario_logradouro'] ?? ''));
+        $recipientNumber = trim((string) ($body['destinatario_numero'] ?? ''));
+        $recipientNeighborhood = trim((string) ($body['destinatario_bairro'] ?? ''));
+        $recipientMunicipality = trim((string) ($body['destinatario_municipio'] ?? ''));
+        $recipientUf = strtoupper(trim((string) ($body['destinatario_uf'] ?? '')));
+        $itemDescription = trim((string) ($body['item_descricao'] ?? ''));
+        $itemCode = trim((string) ($body['item_codigo'] ?? ''));
+        $itemNcm = cleanDocument((string) ($body['item_ncm'] ?? ''));
+        $itemCfop = cleanDocument((string) ($body['item_cfop'] ?? ''));
+        $itemUnit = strtoupper(trim((string) ($body['item_unidade'] ?? 'UN')));
+        $quantity = (float) ($body['item_quantidade'] ?? 0);
+        $unitValue = (float) ($body['item_valor_unitario'] ?? 0);
+
+        if (!in_array(strlen($recipientDocument), [11, 14], true)
+            || strlen($recipientName) < 2 || strlen($recipientName) > 120
+            || strlen($recipientCep) !== 8
+            || $recipientAddress === '' || strlen($recipientAddress) > 120
+            || $recipientNumber === '' || strlen($recipientNumber) > 20
+            || $recipientNeighborhood === '' || strlen($recipientNeighborhood) > 120
+            || $recipientMunicipality === '' || strlen($recipientMunicipality) > 120
+            || !preg_match('/^[A-Z]{2}$/', $recipientUf)
+            || $itemDescription === '' || strlen($itemDescription) > 120
+            || $itemCode === '' || strlen($itemCode) > 60
+            || strlen($itemNcm) !== 8 || strlen($itemCfop) !== 4
+            || $itemUnit === '' || strlen($itemUnit) > 6
+            || !is_finite($quantity) || $quantity <= 0
+            || !is_finite($unitValue) || $unitValue <= 0
+        ) {
+            respond(422, ['error' => 'Preencha corretamente os dados do destinatário e do item da NF-e.']);
+        }
+        if ($recipientEmail !== '' && (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL) || strlen($recipientEmail) > 190)) {
+            respond(422, ['error' => 'Informe um e-mail válido para o destinatário.']);
+        }
+
+        $config = focusNfeConfig();
+        $issuerCnpj = cleanDocument((string) (getenv('FOCUS_NFE_CNPJ_EMITENTE') ?: ''));
+        $issuerName = trim((string) (getenv('FOCUS_NFE_NOME_EMITENTE') ?: ''));
+        if (!$config['demo']) {
+            if (strlen($issuerCnpj) !== 14 || $issuerName === '') {
+                respond(503, ['error' => 'Configure FOCUS_NFE_CNPJ_EMITENTE e FOCUS_NFE_NOME_EMITENTE no servidor.']);
+            }
+        } else {
+            $issuerCnpj = $issuerCnpj !== '' ? $issuerCnpj : '12345678000123';
+            $issuerName = $issuerName !== '' ? $issuerName : 'Empresa Demonstrativa LTDA';
+        }
+
+        $reference = 'nfe-' . $client['id'] . '-' . bin2hex(random_bytes(8));
+        $payload = [
+            'natureza_operacao' => 'Venda de mercadoria',
+            'data_emissao' => date('Y-m-d\TH:i:sP'),
+            'tipo_documento' => '1',
+            'finalidade_emissao' => '1',
+            'cnpj_emitente' => $issuerCnpj,
+            'nome_emitente' => $issuerName,
+            'nome_fantasia_emitente' => trim((string) (getenv('FOCUS_NFE_NOME_FANTASIA_EMITENTE') ?: $issuerName)),
+            'logradouro_emitente' => trim((string) (getenv('FOCUS_NFE_LOGRADOURO_EMITENTE') ?: '')),
+            'numero_emitente' => trim((string) (getenv('FOCUS_NFE_NUMERO_EMITENTE') ?: '')),
+            'bairro_emitente' => trim((string) (getenv('FOCUS_NFE_BAIRRO_EMITENTE') ?: '')),
+            'municipio_emitente' => trim((string) (getenv('FOCUS_NFE_MUNICIPIO_EMITENTE') ?: '')),
+            'uf_emitente' => strtoupper(trim((string) (getenv('FOCUS_NFE_UF_EMITENTE') ?: ''))),
+            'cep_emitente' => cleanDocument((string) (getenv('FOCUS_NFE_CEP_EMITENTE') ?: '')),
+            'telefone_emitente' => trim((string) (getenv('FOCUS_NFE_TELEFONE_EMITENTE') ?: '')),
+            'inscricao_estadual_emitente' => trim((string) (getenv('FOCUS_NFE_IE_EMITENTE') ?: '')),
+            'cpf_destinatario' => strlen($recipientDocument) === 11 ? $recipientDocument : null,
+            'cnpj_destinatario' => strlen($recipientDocument) === 14 ? $recipientDocument : null,
+            'nome_destinatario' => $recipientName,
+            'indicador_inscricao_estadual_destinatario' => '9',
+            'logradouro_destinatario' => $recipientAddress,
+            'numero_destinatario' => $recipientNumber,
+            'bairro_destinatario' => $recipientNeighborhood,
+            'municipio_destinatario' => $recipientMunicipality,
+            'uf_destinatario' => $recipientUf,
+            'cep_destinatario' => $recipientCep,
+            'email_destinatario' => $recipientEmail,
+            'items' => [[
+                'numero_item' => '1',
+                'codigo_produto' => $itemCode,
+                'descricao' => $itemDescription,
+                'codigo_ncm' => $itemNcm,
+                'cfop' => $itemCfop,
+                'unidade_comercial' => $itemUnit,
+                'quantidade_comercial' => number_format($quantity, 4, '.', ''),
+                'valor_unitario_comercial' => number_format($unitValue, 10, '.', ''),
+            ]],
+        ];
+
+        $payload = array_filter($payload, static fn($value): bool => $value !== null && $value !== '' && $value !== []);
+        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($payloadJson === false) {
+            respond(500, ['error' => 'Não foi possível preparar os dados da nota.']);
+        }
+
+        $result = $config['demo']
+            ? [
+                'ref' => $reference,
+                'status' => 'processando_autorizacao',
+                'mensagem_sefaz' => 'Nota criada apenas para demonstração. Nenhum documento fiscal foi enviado à SEFAZ.',
+                'ambiente' => 'demonstracao',
+            ]
+            : focusNfeRequest('POST', '/nfe?ref=' . rawurlencode($reference), $payload);
+        $insert = database()->prepare(
+            'INSERT INTO notas_fiscais
+             (cliente_id, referencia, status, numero, chave, caminho_xml, caminho_danfe, mensagem, payload_json, resposta_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $insert->execute([
+            $client['id'],
+            $reference,
+            (string) ($result['status'] ?? 'processando_autorizacao'),
+            isset($result['numero']) ? (string) $result['numero'] : null,
+            isset($result['chave_nfe']) ? (string) $result['chave_nfe'] : null,
+            isset($result['caminho_xml_nota_fiscal']) ? (string) $result['caminho_xml_nota_fiscal'] : null,
+            isset($result['caminho_danfe']) ? (string) $result['caminho_danfe'] : null,
+            isset($result['mensagem_sefaz']) ? (string) $result['mensagem_sefaz'] : null,
+            $payloadJson,
+            json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+
+        respond(201, ['reference' => $reference, 'note' => $result]);
+    }
+
+    if (in_array($action, ['register', 'login', 'logout', 'me', 'workout', 'leaderboard', 'nfe_config', 'nfe_list', 'nfe_consult', 'nfe_emit'], true)) {
         header('Allow: ' . match ($action) {
-            'register', 'login', 'logout' => 'POST',
-            'me' => 'GET',
+            'register', 'login', 'logout', 'nfe_emit' => 'POST',
+            'me', 'nfe_config', 'nfe_list', 'nfe_consult' => 'GET',
             'workout' => 'GET, PUT',
             'leaderboard' => 'GET',
         });
