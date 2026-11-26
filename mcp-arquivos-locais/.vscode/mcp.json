@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "arquivos-locais": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}\\dist\\index.js"],
+      "env": {
+        "MCP_FILES_ROOT": "C:\\laragon\\www\\desenvolvimento-de-software-com-ia"
+      }
+    }
+  }
+}
